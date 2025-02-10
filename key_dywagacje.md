@@ -352,3 +352,118 @@ Proces autoryzacji przebiega jak poprzednio.
 Po powrocie do /callback, dane z formularza są dostępne w request.args (ponieważ zostały dodane do URL-u przekierowania).
 Teraz masz kompletną integrację formularza z procesem autoryzacji Keycloak. Pamiętaj o obsłudze wyjątków i walidacji danych po stronie serwera.
 
+
+#######################
+REDIRECT 302
+##################
+
+Tak, istnieje możliwość przechwycenia parametru code poprzez przechwycenie przekierowania z Keycloak w Pythonie i znalezienie go w polu Location nagłówka odpowiedzi. Nie potrzebujesz do tego żadnych zewnętrznych narzędzi ani rozszerzeń przeglądarki. Możesz to zrobić bezpośrednio w Twojej aplikacji.
+
+Oto jak to zaimplementować, wraz z wyjaśnieniami i przykładem kodu:
+
+Python
+
+import requests
+import urllib.parse  # Do parsowania URL-i
+import os
+import base64
+import hashlib
+
+# ... (Konfiguracja Keycloak)
+
+def initiate_keycloak_login():
+    state = generate_state(32)
+    session['state'] = state  # Zapisujemy state w sesji
+    code_verifier = generate_code_verifier(43)
+    session['code_verifier'] = code_verifier
+    code_challenge = generate_code_challenge(code_verifier)
+
+    authorization_url = f"{KEYCLOAK_URL}/auth/realms/{REALM}/protocol/openid-connect/auth"
+    params = {
+        # ... (inne parametry)
+        "state": state,
+        "code_challenge": code_challenge,
+        "code_challenge_method": "S256",
+    }
+    redirect_url = requests.Request('GET', authorization_url, params=params).prepare().url
+
+    return redirect_url # Zwracamy URL do przekierowania
+
+
+def get_authorization_code(redirect_url):
+
+    try:
+        response = requests.get(redirect_url, allow_redirects=False) # Kluczowe: allow_redirects=False
+        if response.status_code == 302: # Sprawdzamy, czy to jest przekierowanie
+            location_header = response.headers.get('Location')
+            if location_header:
+                parsed_url = urllib.parse.urlparse(location_header)
+                query_params = urllib.parse.parse_qs(parsed_url.query)
+                code = query_params.get('code', [None])[0]  # Wyodrębniamy code
+                state = query_params.get('state', [None])[0] # Wyodrębniamy state
+                return code, state
+            else:
+                return None, None # Nie znaleziono Location
+        else:
+            return None, None # Nie było przekierowania
+    except requests.exceptions.RequestException as e:
+        print(f"Błąd podczas pobierania code: {e}")
+        return None, None
+
+
+
+# Przykład użycia (w Flask lub innym frameworku):
+
+@app.route("/login")
+def login():
+    redirect_url = initiate_keycloak_login()
+    return redirect(redirect_url)
+
+@app.route("/callback") # Ten endpoint teraz nie będzie używany do bezpośredniego odbierania code
+def callback():
+    # Ten endpoint w ogóle nie powinien być używany, ponieważ przechwytujemy przekierowanie w /get_code
+    pass
+
+@app.route("/get_code") # Nowy endpoint do przechwytywania przekierowania
+def get_code():
+    redirect_url = session.get('redirect_url') # URL zapisany w sesji
+    code, state = get_authorization_code(redirect_url)
+
+    if code and state:
+        if session.get('state') != state:
+            return "Błąd state", 400
+
+        code_verifier = session.get('code_verifier')
+        # ... (Dalszy proces autoryzacji z code i code_verifier)
+    else:
+        return "Nie udało się pobrać code.", 400
+
+
+# ... (Reszta kodu)
+Wyjaśnienie:
+
+allow_redirects=False: To jest kluczowa zmiana.  W żądaniu requests.get() ustawiamy parametr allow_redirects na False. To powoduje, że requests nie będzie automatycznie podążać za przekierowaniem. Zamiast tego, otrzymamy odpowiedź HTTP z kodem 302 (Found) i nagłówkiem Location, który zawiera URL przekierowania.
+
+Odczyt nagłówka Location: Sprawdzamy, czy kod statusu odpowiedzi to 302 (przekierowanie). Jeśli tak, odczytujemy wartość nagłówka Location, która zawiera URL przekierowania z Keycloak.
+
+Parsowanie URL-u: Używamy funkcji urllib.parse.urlparse() i urllib.parse.parse_qs() do rozparsowania URL-u przekierowania i wyodrębnienia parametru code.
+
+Endpoint /get_code: Dodajemy nowy endpoint /get_code, który będzie odpowiedzialny za przechwytywanie przekierowania.  To ten endpoint, a nie /callback, będzie teraz używany.
+
+Zapis URL w sesji: W funkcji index (lub tam, gdzie inicjujesz logowanie), po wygenerowaniu redirect_url, zapisz go w sesji: session['redirect_url'] = redirect_url. Będzie on potrzebny w /get_code.
+
+Przekierowanie do Keycloak: W funkcji login (lub tam, gdzie inicjujesz logowanie), po wygenerowaniu redirect_url, przekieruj użytkownika do /get_code, a nie bezpośrednio do Keycloak.  To /get_code zajmie się resztą.
+
+Przechwytywanie w /get_code: W endpointcie /get_code pobieramy redirect_url z sesji, a następnie używamy get_authorization_code aby przechwycić przekierowanie i wyodrębnić code.
+
+Jak to działa:
+
+Użytkownik wchodzi na stronę logowania w Twojej aplikacji.
+Generowany jest URL przekierowania do Keycloak.
+Zamiast przekierować użytkownika bezpośrednio do Keycloak, przekierowujemy go do Twojego endpointu /get_code.
+Endpoint /get_code wysyła żądanie GET do URL-u Keycloak z allow_redirects=False.
+Otrzymujemy odpowiedź 302 z nagłówkiem Location.
+Parsujemy URL z Location i wyodrębniamy code.
+Kontynuujemy proces autoryzacji z code.
+To podejście pozwala na przechwycenie code bez konieczności zmiany redirect_uri w Keycloak. Pamiętaj o obsłudze wyjątków i odpowiednim zabezpieczeniu sesji.
+
