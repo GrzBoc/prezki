@@ -245,3 +245,110 @@ Ten przykład jest uproszczony i nie implementuje przechowywania state i code_ve
 Obsługa błędów jest minimalna. W produkcji powinieneś dodać więcej mechanizmów kontroli i logowania.
 Kod zakłada, że masz działający serwer Keycloak i skonfigurowanego klienta.
 Ten przykład pokazuje, jak wykonać autoryzację bez frameworka, ale zdecydowanie zalecam użycie frameworka takiego jak Flask lub Django w prawdziwej aplikacji, ze względu na wbudowane mechanizmy bezpieczeństwa i ułatwienia w obsłudze sesji.
+
+
+
+
+
+############################
+-------------------------------
+Jasne, oto jak możesz zrobić formatkę do wprowadzenia tych danych przez użytkownika, integrując ją z poprzednim kodem.  Użyjemy HTML i JavaScript po stronie klienta, aby zebrać dane i przekierować użytkownika do Keycloak z odpowiednimi parametrami w URL-u.
+
+Python
+
+from flask import Flask, request, session, redirect, render_template
+import requests
+import os
+import base64
+import hashlib
+from datetime import datetime
+
+app = Flask(__name__)
+app.secret_key = os.urandom(24)
+
+# ... (Konfiguracja Keycloak)
+
+@app.route("/", methods=["GET", "POST"])  # Dodajemy obsługę metody POST
+def index():
+    if request.method == "POST":  # Jeśli formularz został wysłany
+        start_date = request.form.get("start_date")
+        end_date = request.form.get("end_date")
+        place_number = request.form.get("place_number")
+        date_of_reservation = request.form.get("date_of_reservation")
+
+        state = generate_state(32)
+        session['state'] = state
+        code_verifier = generate_code_verifier(43)
+        session['code_verifier'] = code_verifier
+        code_challenge = generate_code_challenge(code_verifier)
+
+        authorization_url = f"{KEYCLOAK_URL}/auth/realms/{REALM}/protocol/openid-connect/auth"
+        params = {
+            # ... (inne parametry)
+            "state": state,
+            "code_challenge": code_challenge,
+            "code_challenge_method": "S256",
+            "start_date": start_date,  # Dodajemy parametry z formularza
+            "end_date": end_date,
+            "place_number": place_number,
+            "date_of_reservation": date_of_reservation
+        }
+        redirect_url = requests.Request('GET', authorization_url, params=params).prepare().url
+        return redirect(redirect_url) # Przekierowanie po zebraniu danych
+
+    return render_template("index.html")  # Wyświetlamy formularz
+
+
+@app.route("/callback")
+def callback():
+    # ... (Kod callback bez zmian)
+
+# ... (Reszta kodu bez zmian)
+index.html (Szablon HTML):
+
+HTML
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Formularz Rezerwacji</title>
+</head>
+<body>
+    <h1>Wprowadź Dane Rezerwacji</h1>
+    <form method="POST">  <label for="start_date">Data Początkowa:</label>
+        <input type="date" id="start_date" name="start_date" required><br><br>
+
+        <label for="end_date">Data Końcowa:</label>
+        <input type="date" id="end_date" name="end_date" required><br><br>
+
+        <label for="place_number">Numer Miejsca:</label>
+        <input type="number" id="place_number" name="place_number" required><br><br>
+
+         <label for="date_of_reservation">Data Rezerwacji:</label>
+        <input type="date" id="date_of_reservation" name="date_of_reservation" required><br><br>
+
+        <input type="submit" value="Przejdź do Logowania">
+    </form>
+</body>
+</html>
+Wyjaśnienie zmian:
+
+render_template: Używamy render_template z Flask, aby wyświetlić formularz HTML.  Musisz utworzyć folder templates w tym samym katalogu, co Twój skrypt Pythona i umieścić w nim plik index.html.
+
+Formularz HTML: Dodajemy formularz HTML z polami input typu date (dla dat) i number (dla numeru miejsca).  Atrybut name w każdym polu jest bardzo ważny, ponieważ te wartości są używane do pobierania danych w Flask.
+
+Obsługa POST: Dodajemy warunek if request.method == "POST" w funkcji index.  Jeśli żądanie jest typu POST (czyli formularz został wysłany), pobieramy dane z formularza za pomocą request.form.get().
+
+Przekierowanie: Po zebraniu danych, tworzymy URL przekierowania do Keycloak z dodanymi parametrami i przekierowujemy użytkownika.
+
+Jak to działa:
+
+Użytkownik wchodzi na stronę główną (/).
+Wyświetlany jest formularz HTML.
+Użytkownik wypełnia formularz i klika "Przejdź do Logowania".
+Przeglądarka wysyła żądanie POST z danymi formularza.
+Funkcja index w Flask odbiera dane, generuje state, code_verifier, code_challenge, buduje URL przekierowania do Keycloak i przekierowuje tam użytkownika.
+Proces autoryzacji przebiega jak poprzednio.
+Po powrocie do /callback, dane z formularza są dostępne w request.args (ponieważ zostały dodane do URL-u przekierowania).
+Teraz masz kompletną integrację formularza z procesem autoryzacji Keycloak. Pamiętaj o obsłudze wyjątków i walidacji danych po stronie serwera.
+
