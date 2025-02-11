@@ -1,0 +1,52 @@
+W przypadku, gdy po przekierowaniu do Keycloak następuje automatyczne logowanie na podstawie informacji domenowej (np. za pomocą mechanizmu Single Sign-On - SSO), kod w Pythonie z wykorzystaniem Selenium będzie wyglądał nieco inaczej. Nie będziemy musieli ręcznie wypełniać formularza logowania, ponieważ przeglądarka automatycznie uwierzytelni użytkownika na podstawie danych domenowych.
+
+Oto zmodyfikowany kod:
+
+Python
+
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from urllib.parse import urlparse, parse_qs
+
+chrome_options = Options()
+chrome_options.add_argument("--enable-logging")
+chrome_options.add_argument("--log-level=0")
+
+driver = webdriver.Chrome(options=chrome_options)
+
+# Adres URL strony logowania Keycloak
+keycloak_url = "https://your-keycloak-server/auth/realms/your-realm/protocol/openid-connect/auth?client_id=your-client-id&redirect_uri=your-redirect-uri&response_type=code&scope=openid"
+
+driver.get(keycloak_url)
+
+# Oczekiwanie na przekierowanie po automatycznym logowaniu
+# Możemy użyć WebDriverWait, aby poczekać na określony warunek, np. zmianę URL
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+
+try:
+    WebDriverWait(driver, 10).until(EC.url_contains("your-redirect-uri"))
+    redirect_url = driver.current_url
+    parsed_url = urlparse(redirect_url)
+    query_params = parse_qs(parsed_url.query)
+
+    code = query_params.get("code")[0]
+    session_state = query_params.get("session_state")[0]
+
+    print("Code:", code)
+    print("Session State:", session_state)
+
+except Exception as e:
+    print("Błąd podczas oczekiwania na przekierowanie:", e)
+
+finally:
+    driver.quit()
+Wyjaśnienie zmian:
+
+Usunięto kod wypełniający formularz logowania: W tym przypadku nie jest on potrzebny, ponieważ logowanie odbywa się automatycznie.
+Dodano oczekiwanie na przekierowanie: Zastosowano WebDriverWait z expected_conditions.url_contains(), aby poczekać, aż URL zmieni się i będzie zawierał adres przekierowania (your-redirect-uri). To pozwala upewnić się, że automatyczne logowanie zostało zakończone, zanim spróbujemy pobrać parametry code i session_state.
+Obsłużono wyjątki: Dodano blok try...except...finally, aby obsłużyć potencjalne błędy podczas oczekiwania na przekierowanie i upewnić się, że przeglądarka zostanie zamknięta niezależnie od wyniku.
+Uwagi:
+
+Ważne jest, aby dostosować czas oczekiwania (WebDriverWait(driver, 10)) do реального czasu potrzebnego na automatyczne logowanie.
+Jeśli automatyczne logowanie nie powiedzie się, kod w bloku except pozwoli na zidentyfikowanie problemu.
