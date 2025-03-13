@@ -1,0 +1,49 @@
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+import time
+
+# Ustawienia przeglądarki (np. Chrome)
+driver = webdriver.Chrome()
+
+try:
+    # Otwórz Microsoft Teams w przeglądarce
+    driver.get("https://teams.microsoft.com/")
+
+    # Zaloguj się (może być konieczne ręczne zalogowanie się)
+    input("Zaloguj się i naciśnij Enter...")
+
+    # Przejdź do spotkania (może być konieczne dostosowanie URL)
+    driver.get("https://teams.microsoft.com/_#/meetup-join/19:jakisdlugiidentyfikator@thread.v2/1678901234567?context=%7B%22Tid%22:%22jakisidentyfikator%22,%22Oid%22:%22jakisidentyfikator%22%7D")
+
+    # Czekaj na załadowanie napisów (może być konieczne dostosowanie selektora)
+    element = WebDriverWait(driver, 60).until(
+        EC.presence_of_element_located((By.CSS_SELECTOR, ".captions-text"))
+    )
+
+    # Przechowywanie napisów
+    caption_history = []
+
+    while True:
+        try:
+            captions = driver.find_elements(By.CSS_SELECTOR, ".captions-text")
+            for caption in captions:
+                caption_text = caption.text
+                if caption_text and caption_text not in caption_history: #added check to prevent duplicates.
+                    caption_history.append(caption_text)
+            time.sleep(1)  # Odświeżaj co 1 sekundę
+        except Exception as e:
+            print(f"Błąd: {e}")
+            break
+
+except Exception as e:
+    print(f"Wystąpił błąd: {e}")
+
+finally:
+    driver.quit()
+
+# Wyświetl historię napisów po zakończeniu
+print("\nHistoria napisów:")
+for caption in caption_history:
+    print(caption)
