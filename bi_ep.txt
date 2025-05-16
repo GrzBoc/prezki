@@ -1,0 +1,71 @@
+# %%
+import schedule
+import time
+import datetime
+import winsound
+
+
+# %%
+winsound.Beep(6000,500)
+
+# %%
+winsound.Beep(9000,200)
+
+# %%
+winsound.Beep(9000,170)
+winsound.Beep(9000,170)
+
+
+# %%
+winsound.Beep(9000,160)
+winsound.Beep(9000,160)
+winsound.Beep(9000,160)
+
+
+# %%
+def beep(dlugosc_ms):
+    """Odtwarza beep o określonym czasie trwania."""
+    print(f"{datetime.datetime.now().strftime('%H:%M:%S')} - Beep (czas: {dlugosc_ms} ms)!")
+    winsound.Beep(1000, dlugosc_ms)
+
+def beep_dlugi():
+    beep(1000)
+
+def beep_krotki():
+    beep(250)
+
+def sprawdz_i_zaplanuj():
+    teraz = datetime.datetime.now()
+    godzina = teraz.hour
+
+    if 8 <= godzina < 17:
+        schedule.every().hour.at(":00").do(beep_dlugi)
+        schedule.every().hour.at(":15").do(beep(500)) # Krótszy "długi" beep
+        schedule.every().hour.at(":30").do(beep(500))
+        schedule.every().hour.at(":45").do(beep(500))
+        schedule.every().hour.at(":05").do(beep_krotki) # Jeszcze krótszy "krótki" beep
+        schedule.every().hour.at(":20").do(beep_krotki)
+        schedule.every().hour.at(":35").do(beep_krotki)
+        schedule.every().hour.at(":50").do(beep_krotki)
+        print("Harmonogram dźwięków aktywny.")
+        return True
+    else:
+        schedule.clear()
+        print("Harmonogram dźwięków nieaktywny (poza godzinami pracy).")
+        return False
+
+if __name__ == "__main__":
+    print("Program do odtwarzania dźwięków został uruchomiony.")
+    czy_aktywny = sprawdz_i_zaplanuj()
+
+    while True:
+        if 8 <= datetime.datetime.now().hour < 17:
+            if not czy_aktywny:
+                czy_aktywny = sprawdz_i_zaplanuj()
+            schedule.run_pending()
+        else:
+            if czy_aktywny:
+                schedule.clear()
+                czy_aktywny = False
+                print("Harmonogram dźwięków zatrzymany (poza godzinami pracy).")
+        time.sleep(60)
