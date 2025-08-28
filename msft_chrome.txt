@@ -1,0 +1,139 @@
+------------------------------------------------------------------------------------------------
+KROK 1 jednorazowe------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------
+
+# skrypt: create_persistent_profile.py
+import subprocess
+import os
+import time
+
+# Ustaw stałą ścieżkę dla profilu
+PROFILE_PATH = r"C:\automatyzacja\chrome-profil"
+
+# Utwórz folder, jeśli nie istnieje
+if not os.path.exists(PROFILE_PATH):
+    os.makedirs(PROFILE_PATH)
+    print(f"Utworzono folder dla profilu: {PROFILE_PATH}")
+
+CHROME_PATH = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+LOGIN_URL = "https://myaccount.microsoft.com/"
+
+command = [
+    CHROME_PATH,
+    f"--user-data-dir={PROFILE_PATH}",
+    LOGIN_URL
+]
+
+print("\nOtwieram przeglądarkę z dedykowanym profilem.")
+print("PROSZĘ ZALOGOWAĆ SIĘ NA KONTO MICROSOFT.")
+print("Upewnij się, że zaznaczyłeś/aś opcję 'Nie wylogowuj mnie' (Stay signed in).")
+print("\nPo pomyślnym zalogowaniu możesz zamknąć to okno przeglądarki.")
+
+# Uruchom przeglądarkę i pozwól użytkownikowi się zalogować
+process = subprocess.Popen(command)
+process.wait() # Czekaj, aż użytkownik zamknie przeglądarkę
+
+print("\nProfil został utworzony i zawiera zapisaną sesję logowania.")
+
+
+------------------------------------------------------------------------------------------------
+KROK 2 używanie------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------
+# skrypt: get_token_with_persistent_profile.py
+import os
+import shutil
+from urllib.parse import urlparse, parse_qs
+
+import requests
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+
+# --- Konfiguracja ---
+CLIENT_ID = "twoj_client_id"
+TENANT_ID = "twoj_tenant_id"
+REDIRECT_URI = "twoj_redirect_uri"
+SCOPE = "user.read offline_access email"
+
+# Użyj tej samej stałej ścieżki, co w kroku 1
+PERSISTENT_PROFILE_PATH = r"C:\automatyzacja\chrome-profil"
+
+AUTH_URI = (
+    f"https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/authorize?"
+    f"client_id={CLIENT_ID}&response_type=code&redirect_uri={REDIRECT_URI}&"
+    f"response_mode=query&scope={SCOPE}"
+)
+
+def get_token_from_persistent_session():
+    """Pobiera token, ponownie wykorzystując istniejący profil Chrome."""
+    
+    if not os.path.exists(PERSISTENT_PROFILE_PATH):
+        print("BŁĄD: Folder profilu nie istnieje!")
+        print(f"Proszę najpierw uruchomić skrypt 'create_persistent_profile.py', aby go stworzyć i się zalogować.")
+        return None
+
+    options = webdriver.ChromeOptions()
+    options.add_argument(f"--user-data-dir={PERSISTENT_PROFILE_PATH}")
+    options.add_argument("--headless=new")
+    options.add_argument("--window-size=1920,1080")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
+
+    service = Service(ChromeDriverManager().install())
+    driver = None
+    authorization_code = None
+
+    try:
+        print("Uruchamiam przeglądarkę w tle z zapisaną sesją...")
+        driver = webdriver.Chrome(service=service, options=options)
+        driver.get(AUTH_URI)
+
+        wait = WebDriverWait(driver, 15)
+        wait.until(EC.url_contains("code="))
+        
+        final_url = driver.current_url
+        parsed_url = urlparse(final_url)
+        authorization_code = parse_qs(parsed_url.query).get('code', [None])[0]
+
+        if authorization_code:
+            print("Pomyślnie przechwycono kod autoryzacyjny.")
+        else:
+            print("Błąd krytyczny: Nie udało się uzyskać kodu mimo poprawnego przekierowania.")
+
+    except Exception as e:
+        print(f"Wystąpił błąd podczas automatyzacji: {e}")
+        print("Możliwa przyczyna: Sesja logowania w profilu wygasła.")
+        print("Uruchom ponownie skrypt 'create_persistent_profile.py', aby odświeżyć logowanie.")
+    finally:
+        if driver:
+            driver.quit()
+
+    if not authorization_code:
+        return None
+
+    # Wymiana kodu na token
+    token_endpoint = f"https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/token"
+    payload = {
+        'client_id': CLIENT_ID, 'scope': SCOPE, 'code': authorization_code,
+        'redirect_uri': REDIRECT_URI, 'grant_type': 'authorization_code',
+    }
+    
+    print("Wymieniam kod na token dostępu...")
+    response = requests.post(token_endpoint, data=payload)
+    token_data = response.json()
+
+    if "access_token" in token_data:
+        print("Sukces! Uzyskano token dostępu.")
+        return token_data["access_token"]
+    else:
+        print("\nNie udało się uzyskać tokenu. Odpowiedź z serwera:", token_data)
+        return None
+
+# --- Uruchomienie skryptu ---
+if __name__ == "__main__":
+    access_token = get_token_from_persistent_session()
+    if access_token:
+        print("\nMożesz teraz użyć uzyskanego tokenu do rezerwacji biurka.")
