@@ -37,6 +37,99 @@ print("\nProfil został utworzony i zawiera zapisaną sesję logowania.")
 
 
 ------------------------------------------------------------------------------------------------
+KROK 1a jednorazowe z automatycznym zamknięciem-------------------------------------------------
+------------------------------------------------------------------------------------------------
+
+# skrypt: create_persistent_profile_with_timeout.py
+import subprocess
+import os
+import time
+import threading
+
+# --- Konfiguracja ---
+PROFILE_PATH = r"C:\automatyzacja\chrome-profil"
+CHROME_PATH = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+LOGIN_URL = "https://myaccount.microsoft.com/"
+LOGIN_TIMEOUT_SECONDS = 60 # Czas na ręczne zalogowanie
+
+# --- Funkcja zamykająca proces w tle ---
+def close_process_after_timeout(process, timeout):
+    """
+    Funkcja, która będzie działać w osobnym wątku.
+    Czeka na określony czas, a następnie próbuje zamknąć proces,
+    jeśli ten wciąż jest aktywny.
+    """
+    # Czekaj, aż główny wątek zakończy proces lub upłynie czas
+    process.wait(timeout=timeout)
+    
+    # Jeśli po upływie czasu proces nadal działa, zamknij go
+    if process.poll() is None:
+        print(f"\n[Timeout] Upłynęło {timeout} sekund. Automatycznie zamykam przeglądarkę.")
+        try:
+            process.terminate() # Bezpieczniejsza metoda
+            process.wait(5) # Daj mu chwilę na zamknięcie
+            if process.poll() is None:
+                process.kill() # Metoda ostateczna
+        except Exception as e:
+            print(f"Wystąpił błąd podczas próby zamknięcia procesu: {e}")
+
+# --- Główna logika skryptu ---
+if not os.path.exists(CHROME_PATH):
+    print(f"BŁĄD: Nie znaleziono przeglądarki Chrome w ścieżce: {CHROME_PATH}")
+    exit()
+
+if not os.path.exists(PROFILE_PATH):
+    os.makedirs(PROFILE_PATH)
+    print(f"Utworzono folder dla profilu: {PROFILE_PATH}")
+
+command = [
+    CHROME_PATH,
+    f"--user-data-dir={PROFILE_PATH}",
+    LOGIN_URL
+]
+
+print("\nOtwieram przeglądarkę z dedykowanym profilem.")
+print("PROSZĘ ZALOGOWAĆ SIĘ NA KONTO MICROSOFT w ciągu 60 sekund.")
+print("Upewnij się, że zaznaczyłeś/aś opcję 'Nie wylogowuj mnie' (Stay signed in).")
+print("\nPo pomyślnym zalogowaniu możesz od razu zamknąć okno przeglądarki.")
+
+# Uruchom proces przeglądarki
+process = subprocess.Popen(command)
+
+# Uruchom wątek, który będzie monitorował czas
+timeout_thread = threading.Thread(
+    target=close_process_after_timeout,
+    args=(process, LOGIN_TIMEOUT_SECONDS),
+    daemon=True  # Ustaw jako daemon, aby wątek zakończył się wraz z głównym skryptem
+)
+
+try:
+    timeout_thread.start()
+    
+    # Główny wątek czeka tutaj, aż proces przeglądarki się zakończy
+    # (albo przez zamknięcie przez użytkownika, albo przez wątek timeoutu)
+    process.wait()
+
+    # Sprawdź, czy proces nadal działa (co by oznaczało, że to wątek go zamknął)
+    if timeout_thread.is_alive():
+        print("\nPrzeglądarka została zamknięta przez użytkownika. Kontynuuję.")
+        # Tutaj moglibyśmy formalnie "dołączyć" do wątku, ale jako daemon nie jest to konieczne
+    
+    # Dajmy chwilę na pełne zapisanie danych profilu
+    time.sleep(2)
+    print("Profil został utworzony i zawiera zapisaną sesję logowania.")
+
+except Exception as e:
+    print(f"Wystąpił nieoczekiwany błąd: {e}")
+finally:
+    # Upewnij się, że proces na pewno jest zamknięty na końcu
+    if process.poll() is None:
+        process.kill()
+
+
+
+
+------------------------------------------------------------------------------------------------
 KROK 2 używanie------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------
 # skrypt: get_token_with_persistent_profile.py
