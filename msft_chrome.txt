@@ -129,6 +129,96 @@ finally:
         process.kill()
 
 
+------------------------------------------------------------------------------------------------
+KROK 1b jednorazowe z automatycznym zamknięciem-------------------------------------------------
+------------------------------------------------------------------------------------------------
+
+# skrypt: create_persistent_profile_with_timeout_v2.py
+import subprocess
+import os
+import time
+import threading
+
+# --- Konfiguracja ---
+PROFILE_PATH = r"C:\automatyzacja\chrome-profil"
+CHROME_PATH = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+LOGIN_URL = "https://myaccount.microsoft.com/"
+LOGIN_TIMEOUT_SECONDS = 60 # Czas na ręczne zalogowanie
+
+# --- Funkcja zamykająca proces w tle ---
+def kill_process_on_timeout(process, event):
+    """
+    Funkcja działająca w osobnym wątku. Czeka na sygnał lub upływ czasu.
+    """
+    # Czekaj na sygnał od głównego wątku LUB aż upłynie timeout
+    # event.wait() zwróci True, jeśli set() zostanie wywołane, lub False po timeout.
+    if not event.wait(timeout=LOGIN_TIMEOUT_SECONDS):
+        # Jeśli upłynął czas (wait zwrócił False)
+        print(f"\n[Timeout] Upłynęło {LOGIN_TIMEOUT_SECONDS} sekund. Automatycznie zamykam przeglądarkę.")
+        try:
+            if process.poll() is None: # Sprawdź, czy proces wciąż działa
+                process.terminate()
+                time.sleep(1) # Daj chwilę na zamknięcie
+                if process.poll() is None:
+                    process.kill()
+        except Exception as e:
+            print(f"Wystąpił błąd podczas próby zamknięcia procesu: {e}")
+
+# --- Główna logika skryptu ---
+if not os.path.exists(CHROME_PATH):
+    print(f"BŁĄD: Nie znaleziono przeglądarki Chrome w ścieżce: {CHROME_PATH}")
+    exit()
+
+if not os.path.exists(PROFILE_PATH):
+    os.makedirs(PROFILE_PATH)
+    print(f"Utworzono folder dla profilu: {PROFILE_PATH}")
+
+command = [
+    CHROME_PATH,
+    f"--user-data-dir={PROFILE_PATH}",
+    LOGIN_URL
+]
+
+print("\nOtwieram przeglądarkę z dedykowanym profilem.")
+print(f"PROSZĘ ZALOGOWAĆ SIĘ NA KONTO MICROSOFT w ciągu {LOGIN_TIMEOUT_SECONDS} sekund.")
+print("Upewnij się, że zaznaczyłeś/aś opcję 'Nie wylogowuj mnie' (Stay signed in).")
+print("\nPo pomyślnym zalogowaniu możesz od razu zamknąć okno przeglądarki.")
+
+# Utwórz obiekt zdarzenia do komunikacji między wątkami
+user_closed_browser_event = threading.Event()
+
+process = subprocess.Popen(command)
+
+# Uruchom wątek, który będzie monitorował czas
+timeout_thread = threading.Thread(
+    target=kill_process_on_timeout,
+    args=(process, user_closed_browser_event),
+    daemon=True
+)
+timeout_thread.start()
+
+try:
+    # Główny wątek czeka tutaj, aż proces przeglądarki się zakończy
+    # (zostanie zamknięty przez użytkownika)
+    process.wait()
+    
+    # Jeśli dotarliśmy tutaj, to znaczy, że użytkownik zamknął przeglądarkę.
+    # Wyślij sygnał do wątku z licznikiem, aby się zakończył i nie zamykał procesu ponownie.
+    user_closed_browser_event.set()
+    
+    print("\nPrzeglądarka została zamknięta przez użytkownika.")
+    
+except Exception as e:
+    # Ten blok może się wykonać, jeśli wystąpi inny błąd
+    print(f"Wystąpił nieoczekiwany błąd: {e}")
+finally:
+    # Upewnij się, że wątek zakończył działanie
+    timeout_thread.join(timeout=2)
+    # Upewnij się, że proces jest na pewno zamknięty
+    if process.poll() is None:
+        process.kill()
+
+print("Profil został przygotowany.")
 
 
 ------------------------------------------------------------------------------------------------
